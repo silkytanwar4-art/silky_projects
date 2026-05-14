@@ -1,0 +1,337 @@
+{
+  "name": "customer tickets 1",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://www.kaggle.com/api/v1/datasets/download/suraj520/customer-support-ticket-dataset",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1712,
+        -128
+      ],
+      "id": "0cea2626-6bd6-46c0-9f9b-712f8a9ee0b3",
+      "name": "HTTP Request",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python_scrub:5002/clean-binary-rows",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1456,
+        -128
+      ],
+      "id": "d6da6544-f51f-47a2-b5cf-3aa42a7ebabd",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a professional customer support resolution expert.  You will receive customer ticket details and your job is to provide a clear, helpful, and concise resolution for the customer's problem. Always respond with only the Resolution text. No extra explanation, no greetings, no formatting."
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=Customer Name: {{ $json['Customer Name'] }}\nCustomer Email: {{ $json['Customer Email'] }}\nProduct Purchased: {{ $json['Product Purchased'] }}\nTicket ID: {{ $json['Ticket ID'] }}\nTicket Type: {{ $json['Ticket Type'] }}\nTicket Description: {{ $json['Ticket Description'] }}\nTicket Priority: {{ $json['Ticket Priority'] }}\nUrgency: {{ $json['Urgency'] }}\n\nBased on the above ticket details, write a professional and helpful Resolution for this customer's problem."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -112,
+        -32
+      ],
+      "id": "6f48f949-1550-4858-93cc-0c17f311adc3",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:1b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -288
+      ],
+      "id": "49166418-6baf-41fc-a43a-d7ba1f77c1b4",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "jqmVeUhcAUh4SKJX",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "maxItems": 10
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -1168,
+        -128
+      ],
+      "id": "ccb103dd-40d4-46b2-8ba6-0509d34f2dd9",
+      "name": "Limit"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2048,
+        -128
+      ],
+      "id": "d225a3da-fc93-42e0-9aa7-23f09d6a2cd6",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "collection": "customer tickets",
+        "fields": "Customer Name,Customer Email,Product Purchased,Ticket ID,Ticket Description,Ticket Priority,Urgency,Resolution",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        -144
+      ],
+      "id": "d0810098-f100-402a-a8f2-779f5d08f4f4",
+      "name": "Insert documents",
+      "credentials": {
+        "mongoDb": {
+          "id": "GvTdP7fFKy68otl7",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -416,
+        -128
+      ],
+      "id": "b5670f55-304b-43a2-8702-b6e433b1e7e8",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "priority_map = {\n    \"critical\": 1,\n    \"high\": 2,\n    \"medium\": 3,\n    \"low\": 4,\n    \"very low\": 5\n}\n\nresult = []\n\nfor item in _items:\n    data = item[\"json\"]\n\n    # Get product name\n    product = data.get(\"Product Purchased\", \"\")\n\n    # Clean Ticket Description\n    description = data.get(\"Ticket Description\", \"\")\n    description = description.replace(\"\\\\n\", \" \")\n    description = description.replace(\"\\n\", \" \")\n    description = description.replace(\"{product_purchased}\", product)\n    description = description.replace('\"', \"'\")\n    description = \" \".join(description.split())\n\n    # Map Ticket Priority to Urgency (1-5)\n    priority = data.get(\"Ticket Priority\", \"\").strip().lower()\n    urgency = priority_map.get(priority, 5)  # default 5 when priority is empty\n\n    result.append({\n        \"json\": {\n            \"Customer Name\": data.get(\"Customer Name\"),\n            \"Customer Email\": data.get(\"Customer Email\"),\n            \"Product Purchased\": product,\n            \"Ticket ID\": data.get(\"Ticket ID\"),\n            \"Ticket Type\": data.get(\"Ticket Type\"),\n            \"Ticket Description\": description,\n            \"Ticket Priority\": data.get(\"Ticket Priority\"),\n            \"Urgency\": urgency\n        }\n    })\n\nreturn result"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -128
+      ],
+      "id": "896ed4b7-2282-4645-85b4-0792b5e24371",
+      "name": "Code in Python"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"Customer Name\": \"{{ $json['Customer Name'] }}\",\n  \"Customer Email\": \"{{ $json['Customer Email'] }}\",\n  \"Product Purchased\": \"{{ $json['Product Purchased'] }}\",\n  \"Ticket ID\": \"{{ $json['Ticket ID'] }}\",\n  \"Ticket Type\": \"{{ $json['Ticket Type'] }}\",\n  \"Ticket Description\": \"{{ $json['Ticket Description'] }}\",\n  \"Ticket Priority\": \"{{ $json['Ticket Priority'] }}\",\n  \"Urgency\": \"{{ $json['Urgency'] }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -672,
+        -128
+      ],
+      "id": "bdd1267d-72a6-49cf-ab23-961adfb873b5",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"Customer Name\": \"{{ $('Edit Fields').item.json['Customer Name'] }}\",\n  \"Customer Email\": \"{{ $('Edit Fields').item.json['Customer Email'] }}\",\n  \"Product Purchased\": \"{{ $('Edit Fields').item.json['Product Purchased'] }}\",\n  \"Ticket ID\": \"{{ $('Edit Fields').item.json['Ticket ID'] }}\",\n  \"Ticket Type\": \"{{ $('Edit Fields').item.json['Ticket Type'] }}\",\n  \"Ticket Description\": \"{{ $('Edit Fields').item.json['Ticket Description'] }}\",\n  \"Ticket Priority\": \"{{ $('Edit Fields').item.json['Ticket Priority'] }}\",\n  \"Urgency\": \"{{ $('Edit Fields').item.json['Urgency'] }}\",\n  \"Resolution\": \"{{ $json['text'] }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        192,
+        -144
+      ],
+      "id": "ef73e429-e23a-4ffb-88f3-13542a2afac5",
+      "name": "Edit Fields1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Code in Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in Python": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert documents": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Insert documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "cd378177-cb31-4041-9cd2-27ad24408389",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8dd22edd53fab8bb2bb85cb741e14e49f6941a2d8d45db0c383203bf3c747af2"
+  },
+  "id": "0UdGb0p9WER1PJKM",
+  "tags": []
+}
